@@ -8,4 +8,6 @@ import java.util.UUID;
 public interface DagTaskRepository extends JpaRepository<DagTaskEntity, UUID> {
 
     List<DagTaskEntity> findByDagIdOrderByName(UUID dagId);
+
+    List<DagTaskEntity> findByDagIdAndVersionOrderByName(UUID dagId, int version);
 }

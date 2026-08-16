@@ -88,7 +88,7 @@ public class RunService {
         dagRunRepository.saveAndFlush(run);
 
         // Create task instances. Root tasks (no dependencies) start SCHEDULED.
-        List<DagTaskEntity> tasks = dagTaskRepository.findByDagIdOrderByName(dagId);
+        List<DagTaskEntity> tasks = dagTaskRepository.findByDagIdAndVersionOrderByName(dagId, dag.getVersion());
         Map<UUID, Boolean> hasDeps = new HashMap<>();
         for (DagTaskEntity task : tasks) {
             hasDeps.put(task.getId(), !taskDependencyRepository.findByIdTaskId(task.getId()).isEmpty());

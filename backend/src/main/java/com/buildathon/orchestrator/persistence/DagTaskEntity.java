@@ -41,6 +41,9 @@ public class DagTaskEntity {
     @Column(nullable = false)
     private int timeoutSeconds;
 
+    @Column(nullable = false)
+    private int version;
+
     @Column(name = "is_singleton", nullable = false)
     private boolean singleton;
 
@@ -50,6 +53,13 @@ public class DagTaskEntity {
     public DagTaskEntity(UUID id, UUID dagId, String name, String taskType, String config,
                          int maxRetries, int retryDelaySeconds, double retryBackoff,
                          int timeoutSeconds, boolean singleton) {
+        this(id, dagId, name, taskType, config, maxRetries, retryDelaySeconds, retryBackoff,
+                timeoutSeconds, singleton, 0);
+    }
+
+    public DagTaskEntity(UUID id, UUID dagId, String name, String taskType, String config,
+                         int maxRetries, int retryDelaySeconds, double retryBackoff,
+                         int timeoutSeconds, boolean singleton, int version) {
         this.id = id;
         this.dagId = dagId;
         this.name = name;
@@ -60,6 +70,7 @@ public class DagTaskEntity {
         this.retryBackoff = retryBackoff;
         this.timeoutSeconds = timeoutSeconds;
         this.singleton = singleton;
+        this.version = version;
     }
 
     public UUID getId() {
@@ -96,6 +107,10 @@ public class DagTaskEntity {
 
     public int getTimeoutSeconds() {
         return timeoutSeconds;
+    }
+
+    public int getVersion() {
+        return version;
     }
 
     public boolean isSingleton() {

@@ -98,7 +98,7 @@ public class DagService {
             taskIds.put(task.name(), taskId);
             dagTaskRepository.save(new DagTaskEntity(taskId, dag.getId(), task.name(), task.type(),
                     toJson(task.config()), task.maxRetries(), task.retryDelaySeconds(),
-                    task.retryBackoff(), task.timeoutSeconds(), task.singleton()));
+                    task.retryBackoff(), task.timeoutSeconds(), task.singleton(), dag.getVersion()));
         }
         for (TaskSpec task : spec.tasks()) {
             for (String dep : task.dependsOn()) {
@@ -123,13 +123,15 @@ public class DagService {
 
     @Transactional(readOnly = true)
     public List<DagTaskEntity> getTasks(UUID dagId) {
-        return dagTaskRepository.findByDagIdOrderByName(dagId);
+        DagEntity dag = get(dagId);
+        return dagTaskRepository.findByDagIdAndVersionOrderByName(dagId, dag.getVersion());
     }
 
     @Transactional(readOnly = true)
     public Map<UUID, List<UUID>> getDependencies(UUID dagId) {
+        DagEntity dag = get(dagId);
         Map<UUID, List<UUID>> result = new HashMap<>();
-        List<DagTaskEntity> tasks = dagTaskRepository.findByDagIdOrderByName(dagId);
+        List<DagTaskEntity> tasks = dagTaskRepository.findByDagIdAndVersionOrderByName(dagId, dag.getVersion());
         for (DagTaskEntity task : tasks) {
             List<UUID> deps = taskDependencyRepository.findByIdTaskId(task.getId())
                     .stream().map(TaskDependencyEntity::getDependsOnTaskId).toList();
@@ -164,14 +166,11 @@ public class DagService {
                     throw new ConflictException("DAG with name '" + spec.name() + "' already exists");
                 });
 
-        // Replace task graph: delete old tasks and dependencies (cascade), insert new.
-        List<DagTaskEntity> oldTasks = dagTaskRepository.findByDagIdOrderByName(id);
-        oldTasks.forEach(task -> taskDependencyRepository.deleteAll(taskDependencyRepository.findByIdTaskId(task.getId())));
-        taskDependencyRepository.flush();
-        dagTaskRepository.deleteAll(oldTasks);
-        dagTaskRepository.flush();
-
-        existing.update(spec.description(), existing.getVersion() + 1, spec.scheduleCron(),
+        // Keep old task rows: historical task_instances reference them.
+        // New task rows carry the bumped DAG version; runs of the new version
+        // resolve only those.
+        int newVersion = existing.getVersion() + 1;
+        existing.update(spec.description(), newVersion, spec.scheduleCron(),
                 spec.timezone() == null ? existing.getTimezone() : spec.timezone(),
                 existing.isPaused(), yaml, Instant.now());
         dagRepository.save(existing);
@@ -182,7 +181,7 @@ public class DagService {
             taskIds.put(task.name(), taskId);
             dagTaskRepository.save(new DagTaskEntity(taskId, existing.getId(), task.name(), task.type(),
                     toJson(task.config()), task.maxRetries(), task.retryDelaySeconds(),
-                    task.retryBackoff(), task.timeoutSeconds(), task.singleton()));
+                    task.retryBackoff(), task.timeoutSeconds(), task.singleton(), newVersion));
         }
         for (TaskSpec task : spec.tasks()) {
             for (String dep : task.dependsOn()) {

@@ -46,8 +46,16 @@ class DagApiIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private com.buildathon.orchestrator.persistence.TaskDependencyRepository taskDependencyRepository;
 
+    @Autowired
+    private com.buildathon.orchestrator.persistence.TaskInstanceRepository taskInstanceRepository;
+
+    @Autowired
+    private com.buildathon.orchestrator.persistence.DagRunRepository dagRunRepository;
+
     @AfterEach
     void tearDown() {
+        taskInstanceRepository.deleteAll();
+        dagRunRepository.deleteAll();
         taskDependencyRepository.deleteAll();
         dagTaskRepository.deleteAll();
         dagRepository.deleteAll();
@@ -185,6 +193,32 @@ class DagApiIntegrationTest extends AbstractIntegrationTest {
                         .content(VALID_YAML.replace("A test DAG", "Updated description")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.version").value(2));
+    }
+
+    @Test
+    void patchWithNewYamlSucceedsWhenHistoricalTaskInstancesExist() throws Exception {
+        String created = mockMvc.perform(post("/api/v1/dags").contentType("application/yaml").content(VALID_YAML))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String id = extractId(created);
+
+        // Trigger a run so task_instance rows reference the current dag_task rows.
+        mockMvc.perform(post("/api/v1/dags/{id}/runs", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isCreated());
+
+        // Updating the definition must not try to delete referenced dag_task rows.
+        mockMvc.perform(patch("/api/v1/dags/{id}", id)
+                        .contentType("application/yaml")
+                        .content(VALID_YAML.replace("A test DAG", "Updated again")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(2));
+
+        // The DAG listing resolves only the current version's tasks.
+        mockMvc.perform(get("/api/v1/dags/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tasks.length()").value(2));
     }
 
     private String extractId(String json) throws Exception {
