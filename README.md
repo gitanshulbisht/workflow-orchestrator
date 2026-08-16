@@ -4,6 +4,8 @@ A production-grade distributed workflow engine built for **Build-A-Thon 2026** (
 
 **Spring Boot 4.1 (Java 21) · PostgreSQL 16 · Redis 7 · React 19**
 
+**Live demo**: https://workflow-orchestrator-yij6.onrender.com · **[Demo video](demo-video.mp4)** (2 min, with narration overlays)
+
 ---
 
 ## What it does
