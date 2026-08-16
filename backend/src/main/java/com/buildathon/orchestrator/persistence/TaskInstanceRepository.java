@@ -2,6 +2,7 @@ package com.buildathon.orchestrator.persistence;
 
 import com.buildathon.orchestrator.domain.TaskState;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -54,4 +55,16 @@ public interface TaskInstanceRepository extends JpaRepository<TaskInstanceEntity
 
     @Query("select t from TaskInstanceEntity t where t.state = com.buildathon.orchestrator.domain.TaskState.UP_FOR_RETRY and t.scheduledAt <= :now")
     List<TaskInstanceEntity> findDueRetries(@Param("now") Instant now);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update TaskInstanceEntity t set t.state = com.buildathon.orchestrator.domain.TaskState.CANCELLED,
+              t.endedAt = :now, t.claimedBy = null
+            where t.runId = :runId
+              and t.state in (com.buildathon.orchestrator.domain.TaskState.PENDING,
+                              com.buildathon.orchestrator.domain.TaskState.SCHEDULED,
+                              com.buildathon.orchestrator.domain.TaskState.RUNNING,
+                              com.buildathon.orchestrator.domain.TaskState.UP_FOR_RETRY)
+            """)
+    int cancelAllInRun(@Param("runId") UUID runId, @Param("now") Instant now);
 }

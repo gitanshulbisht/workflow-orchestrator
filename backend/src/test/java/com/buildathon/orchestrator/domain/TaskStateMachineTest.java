@@ -16,7 +16,7 @@ class TaskStateMachineTest {
             boolean allowed = switch (from) {
                 case PENDING -> to == TaskState.SCHEDULED || to == TaskState.SKIPPED || to == TaskState.CANCELLED;
                 case SCHEDULED -> to == TaskState.RUNNING || to == TaskState.CANCELLED;
-                case RUNNING -> to == TaskState.SUCCESS || to == TaskState.FAILED;
+                case RUNNING -> to == TaskState.SUCCESS || to == TaskState.FAILED || to == TaskState.CANCELLED;
                 case FAILED -> to == TaskState.UP_FOR_RETRY || to == TaskState.DEAD_LETTERED;
                 case UP_FOR_RETRY -> to == TaskState.SCHEDULED;
                 case DEAD_LETTERED -> to == TaskState.SCHEDULED;

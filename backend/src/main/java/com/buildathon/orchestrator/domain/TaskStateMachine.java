@@ -11,7 +11,7 @@ public final class TaskStateMachine {
     private static final Map<TaskState, Set<TaskState>> ALLOWED = Map.ofEntries(
             Map.entry(TaskState.PENDING, Set.of(TaskState.SCHEDULED, TaskState.SKIPPED, TaskState.CANCELLED)),
             Map.entry(TaskState.SCHEDULED, Set.of(TaskState.RUNNING, TaskState.CANCELLED)),
-            Map.entry(TaskState.RUNNING, Set.of(TaskState.SUCCESS, TaskState.FAILED)),
+            Map.entry(TaskState.RUNNING, Set.of(TaskState.SUCCESS, TaskState.FAILED, TaskState.CANCELLED)),
             Map.entry(TaskState.FAILED, Set.of(TaskState.UP_FOR_RETRY, TaskState.DEAD_LETTERED)),
             Map.entry(TaskState.UP_FOR_RETRY, Set.of(TaskState.SCHEDULED)),
             Map.entry(TaskState.DEAD_LETTERED, Set.of(TaskState.SCHEDULED)),

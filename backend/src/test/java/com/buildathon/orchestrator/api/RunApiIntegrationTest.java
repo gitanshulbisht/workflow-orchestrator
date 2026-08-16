@@ -143,6 +143,30 @@ class RunApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void cancellingRunWithRunningTaskCancelsIt() throws Exception {
+        String runJson = mockMvc.perform(post("/api/v1/dags/{id}/runs", dagId))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID runId = UUID.fromString(objectMapper.readTree(runJson).get("id").asText());
+
+        // Simulate a worker having claimed the root task and running it.
+        var task = taskInstanceRepository.findByRunIdOrderByQueuedAt(runId).stream()
+                .filter(t -> t.getState() == TaskState.SCHEDULED)
+                .findFirst().orElseThrow();
+        task.claim("worker-x", java.time.Instant.now());
+        taskInstanceRepository.saveAndFlush(task);
+        dagRunRepository.findById(runId).orElseThrow().transition(RunState.RUNNING, java.time.Instant.now());
+        dagRunRepository.flush();
+
+        mockMvc.perform(post("/api/v1/dags/{id}/runs/{runId}/cancel", dagId, runId))
+                .andExpect(status().isOk());
+
+        assertThat(dagRunRepository.findById(runId).orElseThrow().getState()).isEqualTo(RunState.CANCELLED);
+        assertThat(taskInstanceRepository.findById(task.getId()).orElseThrow().getState())
+                .isEqualTo(TaskState.CANCELLED);
+    }
+
+    @Test
     void finalizeRunMarksSuccessWhenAllTasksSucceed() throws Exception {
         String runJson = mockMvc.perform(post("/api/v1/dags/{id}/runs", dagId))
                 .andExpect(status().isCreated())
