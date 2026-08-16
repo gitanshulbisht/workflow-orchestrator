@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/orchestrator_test
+    username: orchestrator
+    password: orchestrator
+  flyway:
+    enabled: true
+
+orchestrator:
+  roles: none
+  rate-limit:
+    enabled: false
+
+logging:
+  level:
+    root: WARN

@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: workflow-orchestrator
+    runtime: docker
+    plan: standard
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: ROLES
+        value: api,scheduler,worker
+      - key: DB_URL
+        fromDatabase:
+          name: orchestrator-db
+          property: connectionString
+      - key: DB_USER
+        fromDatabase:
+          name: orchestrator-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: orchestrator-db
+          property: password
+      - key: REDIS_HOST
+        fromService:
+          name: orchestrator-redis
+          type: redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          name: orchestrator-redis
+          type: redis
+          property: port
+
+databases:
+  - name: orchestrator-db
+    plan: free
