@@ -75,7 +75,7 @@ State changes and event publication must not split across two systems without at
 
 ```
 dag(id, name UNIQUE, version, schedule_cron, timezone, is_paused, dag_yaml, …)
-dag_task(id, dag_id, name, task_type, config JSONB, max_retries, retry_delay_seconds,
+dag_task(id, dag_id, name, version, task_type, config JSONB, max_retries, retry_delay_seconds,
          retry_backoff, timeout_seconds, is_singleton)
 task_dependency(task_id, depends_on_task_id)
 dag_schedule(dag_id, next_run_at, last_run_at, misfire_policy)
@@ -98,13 +98,17 @@ idempotency_record(key PK, request_hash, status_code, response_body, expires_at)
 **Task**:
 ```
 PENDING ──▶ SCHEDULED ──▶ RUNNING ──▶ SUCCESS
-   │            ▲            │
+   │            ▲            │   │
+   │            │            │   └──▶ CANCELLED (run cancelled mid-flight)
+   │            │            │
    │            │            └──▶ FAILED ──▶ UP_FOR_RETRY ──(backoff)──┘
    │            │                        └──▶ DEAD_LETTERED ──(replay)──▶ SCHEDULED
    ├──▶ SKIPPED (upstream failed)
    └──▶ CANCELLED (run cancelled)
 ```
 A task becomes SCHEDULED only when all upstream tasks are SUCCESS. Failed upstream cascades SKIPPED to dependents. Transitions are enforced by a pure state machine (exhaustively unit-tested).
+
+**DAG versions**: updating a DAG definition bumps `dag.version` and inserts a fresh set of `dag_task` rows stamped with the new version. Historical rows stay (old runs still reference them); new runs resolve only the current version's tasks.
 
 ## API
 
@@ -162,18 +166,19 @@ cd backend
 ./mvnw test
 ```
 
-76 tests: pure-domain unit tests (state machines, validation, backoff) plus Testcontainers integration tests that boot real Postgres + Redis — including a concurrency test proving two parallel transactions never claim the same task.
+79 tests: pure-domain unit tests (state machines, validation, backoff) plus Testcontainers integration tests that boot real Postgres + Redis — including a concurrency test proving two parallel transactions never claim the same task, a webhook-dispatch round trip with HMAC verification, and DAG-versioning regression tests.
 
 ## Demo script (2–5 min video)
 
 1. Register a 5-task DAG (parallel fetch → process → notify) in the UI or via Swagger
 2. Trigger a run — watch the live timeline update via SSE
 3. Re-trigger with the same `Idempotency-Key` — same run returned, no duplicate
-4. Show retries: a `fail` task with `maxRetries: 2` fails, backs off, succeeds on the last attempt
-5. Show the DLQ: a task with no retries left dead-letters; hit replay and watch the run finish
-6. `docker compose logs scheduler-2` — the second scheduler never scans (leader election)
-7. Burst the API — 429 with `Retry-After`
-8. Point a webhook at webhook.site — signed events arrive in order (outbox)
+4. Show retries: a `fail` task with `maxRetries: 2` fails three times with growing backoff gaps (attempts are recorded), then dead-letters
+5. Show the DLQ: hit replay and watch the task re-enter the queue; downstream tasks cascade SKIPPED
+6. Show the cancel path: trigger a `delay` task with `seconds: 60` and cancel the run mid-flight
+7. `docker compose logs scheduler-2` — the second scheduler contends for the lock (leader election)
+8. Burst the API — 429 with `Retry-After`
+9. Point a webhook at webhook.site — signed events arrive in order (outbox)
 
 ## Deploying to Render
 

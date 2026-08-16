@@ -34,7 +34,7 @@ the judging patterns live."
 
 ## 5. Leader election (30s)
 - `docker compose ps` shows two scheduler containers
-- `docker compose logs scheduler-2 | grep leader` — never acquires while scheduler-1 holds it
+- `docker compose logs scheduler-2 | grep leader` — contends for the lock but only one holds it per scan cycle
 - "A Redisson lock guarantees exactly one cron scanner. Kill the leader and the
   other takes over within one tick."
 
@@ -56,4 +56,4 @@ the judging patterns live."
 - Why Postgres as the queue: transactional consistency, SKIP LOCKED, crash-safe claims
 - Why outbox + polling relay: atomicity between state and events; LISTEN/NOTIFY as the upgrade path
 - Crash recovery: reaper marks stale heartbeats FAILED → retry path
-- 76 tests: state machines, validation, backoff, and Testcontainers concurrency tests
+- 79 tests: state machines, validation, backoff, webhook dispatch, and Testcontainers concurrency tests
