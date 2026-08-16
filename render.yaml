@@ -30,6 +30,12 @@ services:
           name: orchestrator-redis
           type: redis
           property: port
+  - type: redis
+    name: orchestrator-redis
+    plan: free
+    ipAllowList:
+      - cidrBlock: 0.0.0.0/0
+        description: everywhere
 
 databases:
   - name: orchestrator-db
