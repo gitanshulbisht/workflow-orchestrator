@@ -46,8 +46,7 @@ public class EventFanOut implements MessageListener {
         try {
             var node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
             String eventType = node.get("eventType").asText();
-            String payload = node.get("payload").toString();
-            broadcaster.broadcast(eventType, payload);
+            broadcaster.broadcast(eventType, json);
         } catch (Exception e) {
             log.warn("Could not parse event message: {}", json, e);
         }
