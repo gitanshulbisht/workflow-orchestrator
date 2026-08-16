@@ -21,7 +21,12 @@ public class RedissonConfig {
             @Value("${spring.data.redis.host:localhost}") String host,
             @Value("${spring.data.redis.port:6379}") int port) {
         Config config = new Config();
-        config.useSingleServer().setAddress("redis://" + host + ":" + port);
+        config.useSingleServer()
+                .setAddress("redis://" + host + ":" + port)
+                // Render's free Redis tier allows only a handful of client
+                // connections; Redisson's default pool (~24) exhausts it.
+                .setConnectionPoolSize(4)
+                .setConnectionMinimumIdleSize(1);
         return Redisson.create(config);
     }
 
