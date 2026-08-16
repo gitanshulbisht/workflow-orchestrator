@@ -17,6 +17,7 @@ public class OutboxEventEntity {
 
     public static final String STATUS_PENDING = "PENDING";
     public static final String STATUS_PUBLISHED = "PUBLISHED";
+    public static final String STATUS_DISPATCHED = "DISPATCHED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -91,5 +92,9 @@ public class OutboxEventEntity {
     public void markPublished(Instant now) {
         this.deliveryStatus = STATUS_PUBLISHED;
         this.publishedAt = now;
+    }
+
+    public void markDispatched() {
+        this.deliveryStatus = STATUS_DISPATCHED;
     }
 }

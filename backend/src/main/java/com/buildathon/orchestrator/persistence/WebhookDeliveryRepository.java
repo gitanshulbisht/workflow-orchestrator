@@ -8,4 +8,6 @@ import java.util.UUID;
 public interface WebhookDeliveryRepository extends JpaRepository<WebhookDeliveryEntity, UUID> {
 
     List<WebhookDeliveryEntity> findByStatusOrderByEventIdAsc(String status, org.springframework.data.domain.Pageable pageable);
+
+    boolean existsByWebhookIdAndEventId(UUID webhookId, Long eventId);
 }

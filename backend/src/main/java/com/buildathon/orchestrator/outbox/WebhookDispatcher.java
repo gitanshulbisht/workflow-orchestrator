@@ -69,11 +69,16 @@ public class WebhookDispatcher {
                 }
                 delivered += deliverToWebhook(webhook, event);
             }
+            event.markDispatched();
+            outboxEventRepository.save(event);
         }
         return delivered;
     }
 
     private int deliverToWebhook(WebhookEntity webhook, OutboxEventEntity event) {
+        if (deliveryRepository.existsByWebhookIdAndEventId(webhook.getId(), event.getId())) {
+            return 0;
+        }
         WebhookDeliveryEntity delivery = new WebhookDeliveryEntity(UUID.randomUUID(), webhook.getId(), event.getId());
         deliveryRepository.save(delivery);
 

@@ -18,10 +18,13 @@ public class OutboxRelayRunner {
     private static final Logger log = LoggerFactory.getLogger(OutboxRelayRunner.class);
 
     private final OutboxRelay relay;
+    private final WebhookDispatcher webhookDispatcher;
     private final OrchestratorProperties properties;
 
-    public OutboxRelayRunner(OutboxRelay relay, OrchestratorProperties properties) {
+    public OutboxRelayRunner(OutboxRelay relay, WebhookDispatcher webhookDispatcher,
+                             OrchestratorProperties properties) {
         this.relay = relay;
+        this.webhookDispatcher = webhookDispatcher;
         this.properties = properties;
     }
 
@@ -38,5 +41,6 @@ public class OutboxRelayRunner {
             return;
         }
         relay.publishPending();
+        webhookDispatcher.dispatchPending();
     }
 }
