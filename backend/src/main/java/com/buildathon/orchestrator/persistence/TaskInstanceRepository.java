@@ -67,4 +67,11 @@ public interface TaskInstanceRepository extends JpaRepository<TaskInstanceEntity
                               com.buildathon.orchestrator.domain.TaskState.UP_FOR_RETRY)
             """)
     int cancelAllInRun(@Param("runId") UUID runId, @Param("now") Instant now);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update TaskInstanceEntity t set t.heartbeatAt = :now
+            where t.id = :id and t.state = com.buildathon.orchestrator.domain.TaskState.RUNNING
+            """)
+    int refreshHeartbeat(@Param("id") UUID id, @Param("now") Instant now);
 }

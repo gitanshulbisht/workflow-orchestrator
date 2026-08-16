@@ -1,5 +1,6 @@
 package com.buildathon.orchestrator.worker;
 
+import com.buildathon.orchestrator.config.OrchestratorProperties;
 import com.buildathon.orchestrator.domain.BackoffCalculator;
 import com.buildathon.orchestrator.domain.TaskState;
 import com.buildathon.orchestrator.lock.LockManager;
@@ -46,12 +47,14 @@ public class WorkerService {
     private final RunService runService;
     private final ObjectMapper objectMapper;
     private final ExecutorRegistry executorRegistry;
+    private final OrchestratorProperties properties;
 
     public WorkerService(TaskInstanceRepository taskInstanceRepository, TaskAttemptRepository taskAttemptRepository,
                          DagTaskRepository dagTaskRepository, DeadLetterRepository deadLetterRepository,
                          OutboxWriter outboxWriter, LockManager lockManager,
                          PlatformTransactionManager transactionManager, RunService runService,
-                         ObjectMapper objectMapper, ExecutorRegistry executorRegistry) {
+                         ObjectMapper objectMapper, ExecutorRegistry executorRegistry,
+                         OrchestratorProperties properties) {
         this.taskInstanceRepository = taskInstanceRepository;
         this.taskAttemptRepository = taskAttemptRepository;
         this.dagTaskRepository = dagTaskRepository;
@@ -62,6 +65,7 @@ public class WorkerService {
         this.runService = runService;
         this.objectMapper = objectMapper;
         this.executorRegistry = executorRegistry;
+        this.properties = properties;
     }
 
     /**
@@ -150,10 +154,13 @@ public class WorkerService {
         taskInstanceRepository.save(task);
 
         TaskExecutionResult result;
+        Thread heartbeater = startHeartbeater(task.getId());
         try {
             result = executeWithSingletonGuard(task, spec, executor, config);
         } catch (Exception e) {
             result = TaskExecutionResult.failure(e.getMessage(), null);
+        } finally {
+            stopHeartbeater(heartbeater);
         }
 
         Instant endedAt = Instant.now();
@@ -206,6 +213,33 @@ public class WorkerService {
                 log.warn("Task {} dead-lettered after {} attempts", task.getId(), attemptNo);
             }
             propagateDownstream(task.getRunId());
+        }
+    }
+
+    private Thread startHeartbeater(UUID instanceId) {
+        Thread thread = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    Thread.sleep(properties.worker().heartbeatIntervalMs());
+                    TransactionTemplate tx = new TransactionTemplate(transactionManager);
+                    tx.executeWithoutResult(status ->
+                            taskInstanceRepository.refreshHeartbeat(instanceId, Instant.now()));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                } catch (Exception e) {
+                    log.debug("Heartbeat refresh failed for task {}: {}", instanceId, e.getMessage());
+                }
+            }
+        }, "heartbeat-" + instanceId);
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
+    }
+
+    private void stopHeartbeater(Thread heartbeater) {
+        if (heartbeater != null) {
+            heartbeater.interrupt();
         }
     }
 
