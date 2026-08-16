@@ -8,4 +8,6 @@ import java.util.UUID;
 public interface TaskAttemptRepository extends JpaRepository<TaskAttemptEntity, UUID> {
 
     List<TaskAttemptEntity> findByTaskInstanceIdOrderByAttemptNo(UUID taskInstanceId);
+
+    java.util.Optional<TaskAttemptEntity> findByTaskInstanceIdAndAttemptNo(UUID taskInstanceId, int attemptNo);
 }

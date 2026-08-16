@@ -87,12 +87,7 @@ public class WorkerService {
         if (claimed == null) {
             return null;
         }
-        TransactionTemplate execTx = new TransactionTemplate(transactionManager);
-        execTx.executeWithoutResult(status -> {
-            TaskInstanceEntity task = taskInstanceRepository.findById(claimed.getId()).orElseThrow();
-            DagTaskEntity spec = dagTaskRepository.findById(task.getDagTaskId()).orElseThrow();
-            doExecute(task.getId(), executorRegistry.forType(spec.getTaskType()), workerId);
-        });
+        doExecute(claimed.getId(), claimed.getDagTaskId(), workerId);
         return claimed.getId();
     }
 
@@ -126,94 +121,131 @@ public class WorkerService {
      */
     public void executeClaimed(UUID instanceId, String workerId) {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
-        tx.executeWithoutResult(status -> {
+        UUID dagTaskId = tx.execute(status -> {
             TaskInstanceEntity task = taskInstanceRepository.findById(instanceId).orElseThrow();
-            DagTaskEntity spec = dagTaskRepository.findById(task.getDagTaskId()).orElseThrow();
-            doExecute(instanceId, executorRegistry.forType(spec.getTaskType()), workerId);
+            if (task.getState() != TaskState.RUNNING) {
+                return null;
+            }
+            return task.getDagTaskId();
         });
+        if (dagTaskId != null) {
+            doExecute(instanceId, dagTaskId, workerId);
+        }
     }
 
     public void executeClaimed(UUID instanceId, TaskExecutor executor, String workerId) {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
-        tx.executeWithoutResult(status -> doExecute(instanceId, executor, workerId));
+        UUID dagTaskId = tx.execute(status -> {
+            TaskInstanceEntity task = taskInstanceRepository.findById(instanceId).orElseThrow();
+            return task.getDagTaskId();
+        });
+        doExecuteWithExecutor(instanceId, dagTaskId, executor, workerId);
     }
 
-    private void doExecute(UUID instanceId, TaskExecutor executor, String workerId) {
-        TaskInstanceEntity task = taskInstanceRepository.findById(instanceId).orElseThrow();
-        if (task.getState() != TaskState.RUNNING) {
+    private void doExecute(UUID instanceId, UUID dagTaskId, String workerId) {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        String type = tx.execute(status ->
+                dagTaskRepository.findById(dagTaskId).orElseThrow().getTaskType());
+        doExecuteWithExecutor(instanceId, dagTaskId, executorRegistry.forType(type), workerId);
+    }
+
+    private void doExecuteWithExecutor(UUID instanceId, UUID dagTaskId, TaskExecutor executor, String workerId) {
+        // Fetch spec/attempt data in a short transaction, run the executor
+        // OUTSIDE any transaction (so the heartbeater can update the row
+        // without contending with the worker's lock), then finalize in a new
+        // transaction.
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        Integer attemptNo = tx.execute(status -> {
+            TaskInstanceEntity task = taskInstanceRepository.findById(instanceId).orElseThrow();
+            if (task.getState() != TaskState.RUNNING) {
+                return null;
+            }
+            DagTaskEntity spec = dagTaskRepository.findById(dagTaskId).orElseThrow();
+            int no = task.getAttemptNo() + 1;
+            Instant startedAt = Instant.now();
+            TaskAttemptEntity attempt = new TaskAttemptEntity(UUID.randomUUID(), task.getId(), no, "RUNNING", startedAt);
+            taskAttemptRepository.saveAndFlush(attempt);
+            task.heartbeat(startedAt);
+            taskInstanceRepository.saveAndFlush(task);
+            return no;
+        });
+        if (attemptNo == null) {
             return;
         }
-        runService.markStarted(task.getRunId());
-        DagTaskEntity spec = dagTaskRepository.findById(task.getDagTaskId()).orElseThrow();
+
+        DagTaskEntity spec = tx.execute(status -> dagTaskRepository.findById(dagTaskId).orElseThrow());
         Map<String, Object> config = parseConfig(spec.getConfig());
-        int attemptNo = task.getAttemptNo() + 1;
-        Instant startedAt = Instant.now();
-        TaskAttemptEntity attempt = new TaskAttemptEntity(UUID.randomUUID(), task.getId(), attemptNo, "RUNNING", startedAt);
-        taskAttemptRepository.save(attempt);
-        task.heartbeat(startedAt);
-        taskInstanceRepository.save(task);
 
         TaskExecutionResult result;
-        Thread heartbeater = startHeartbeater(task.getId());
+        Thread heartbeater = startHeartbeater(instanceId);
         try {
-            result = executeWithSingletonGuard(task, spec, executor, config);
+            result = executeWithSingletonGuard(instanceId, spec, executor, config);
         } catch (Exception e) {
             result = TaskExecutionResult.failure(e.getMessage(), null);
         } finally {
             stopHeartbeater(heartbeater);
         }
 
-        Instant endedAt = Instant.now();
-        attempt.complete(result.isSuccess() ? "SUCCESS" : "FAILED", endedAt,
-                result.exitCode(), result.logTail(), result.error());
-        taskAttemptRepository.save(attempt);
-
-        if (result.isSuccess()) {
-            task.transition(TaskState.SUCCESS, endedAt);
-            taskInstanceRepository.save(task);
-            outboxWriter.write("TASK_INSTANCE", task.getId().toString(), "TASK_INSTANCE_SUCCEEDED",
-                    Map.of("runId", task.getRunId().toString(), "taskInstanceId", task.getId().toString(),
-                            "attempt", attemptNo));
-            propagateDownstream(task.getRunId());
-            return;
-        }
-
-        task.markError(result.error());
-        if (attemptNo <= spec.getMaxRetries()) {
-            task.transition(TaskState.FAILED, endedAt);
-            task.transition(TaskState.UP_FOR_RETRY, endedAt);
-            long delayMillis = BackoffCalculator.computeDelayMillis(
-                    spec.getRetryDelaySeconds(), spec.getRetryBackoff(), attemptNo);
-            Instant nextAttempt = Instant.now().plusMillis(delayMillis);
-            task.scheduleRetry(attemptNo, nextAttempt);
-            taskInstanceRepository.save(task);
-            outboxWriter.write("TASK_INSTANCE", task.getId().toString(), "TASK_INSTANCE_RETRY_SCHEDULED",
-                    Map.of("runId", task.getRunId().toString(), "taskInstanceId", task.getId().toString(),
-                            "attempt", attemptNo, "nextAttemptAt", nextAttempt.toString(),
-                            "delayMillis", delayMillis));
-            log.info("Task {} attempt {} failed; retry scheduled in {}ms", task.getId(), attemptNo, delayMillis);
-        } else {
-            task.transition(TaskState.FAILED, endedAt);
-            task.transition(TaskState.DEAD_LETTERED, endedAt);
-            task.scheduleRetry(attemptNo, null);
-            taskInstanceRepository.save(task);
-            // Dedup: a concurrent re-arm can't resurrect a dead-lettered task
-            // anymore (optimistic locking), but keep the DLQ row unique per
-            // task instance regardless.
-            if (deadLetterRepository.findByTaskInstanceId(task.getId()).isEmpty()) {
-                DeadLetterEntity dl = new DeadLetterEntity(UUID.randomUUID(), task.getId(), task.getRunId(),
-                        spec.getName(), toJson(Map.of(
-                                "error", result.error() == null ? "unknown" : result.error(),
-                                "attempts", attemptNo,
-                                "logTail", result.logTail() == null ? "" : result.logTail())), endedAt);
-                deadLetterRepository.save(dl);
-                outboxWriter.write("TASK_INSTANCE", task.getId().toString(), "TASK_INSTANCE_DEAD_LETTERED",
-                        Map.of("runId", task.getRunId().toString(), "taskInstanceId", task.getId().toString(),
-                                "deadLetterId", dl.getId().toString(), "attempts", attemptNo));
-                log.warn("Task {} dead-lettered after {} attempts", task.getId(), attemptNo);
+        final TaskExecutionResult outcome = result;
+        tx.executeWithoutResult(status -> {
+            TaskInstanceEntity task = taskInstanceRepository.findById(instanceId).orElseThrow();
+            Instant endedAt = Instant.now();
+            TaskAttemptEntity attempt = taskAttemptRepository
+                    .findByTaskInstanceIdAndAttemptNo(task.getId(), attemptNo)
+                    .orElse(null);
+            if (attempt != null) {
+                attempt.complete(outcome.isSuccess() ? "SUCCESS" : "FAILED", endedAt,
+                        outcome.exitCode(), outcome.logTail(), outcome.error());
+                taskAttemptRepository.save(attempt);
             }
-            propagateDownstream(task.getRunId());
-        }
+
+            if (outcome.isSuccess()) {
+                task.transition(TaskState.SUCCESS, endedAt);
+                taskInstanceRepository.saveAndFlush(task);
+                outboxWriter.write("TASK_INSTANCE", task.getId().toString(), "TASK_INSTANCE_SUCCEEDED",
+                        Map.of("runId", task.getRunId().toString(), "taskInstanceId", task.getId().toString(),
+                                "attempt", attemptNo));
+                propagateDownstream(task.getRunId());
+                return;
+            }
+
+            task.markError(outcome.error());
+            if (attemptNo <= spec.getMaxRetries()) {
+                task.transition(TaskState.FAILED, endedAt);
+                task.transition(TaskState.UP_FOR_RETRY, endedAt);
+                long delayMillis = BackoffCalculator.computeDelayMillis(
+                        spec.getRetryDelaySeconds(), spec.getRetryBackoff(), attemptNo);
+                Instant nextAttempt = Instant.now().plusMillis(delayMillis);
+                task.scheduleRetry(attemptNo, nextAttempt);
+                taskInstanceRepository.saveAndFlush(task);
+                outboxWriter.write("TASK_INSTANCE", task.getId().toString(), "TASK_INSTANCE_RETRY_SCHEDULED",
+                        Map.of("runId", task.getRunId().toString(), "taskInstanceId", task.getId().toString(),
+                                "attempt", attemptNo, "nextAttemptAt", nextAttempt.toString(),
+                                "delayMillis", delayMillis));
+                log.info("Task {} attempt {} failed; retry scheduled in {}ms", task.getId(), attemptNo, delayMillis);
+            } else {
+                task.transition(TaskState.FAILED, endedAt);
+                task.transition(TaskState.DEAD_LETTERED, endedAt);
+                task.scheduleRetry(attemptNo, null);
+                taskInstanceRepository.saveAndFlush(task);
+                // Dedup: a concurrent re-arm can't resurrect a dead-lettered task
+                // anymore (optimistic locking), but keep the DLQ row unique per
+                // task instance regardless.
+                if (deadLetterRepository.findByTaskInstanceId(task.getId()).isEmpty()) {
+                    DeadLetterEntity dl = new DeadLetterEntity(UUID.randomUUID(), task.getId(), task.getRunId(),
+                            spec.getName(), toJson(Map.of(
+                                    "error", outcome.error() == null ? "unknown" : outcome.error(),
+                                    "attempts", attemptNo,
+                                    "logTail", outcome.logTail() == null ? "" : outcome.logTail())), endedAt);
+                    deadLetterRepository.save(dl);
+                    outboxWriter.write("TASK_INSTANCE", task.getId().toString(), "TASK_INSTANCE_DEAD_LETTERED",
+                            Map.of("runId", task.getRunId().toString(), "taskInstanceId", task.getId().toString(),
+                                    "deadLetterId", dl.getId().toString(), "attempts", attemptNo));
+                    log.warn("Task {} dead-lettered after {} attempts", task.getId(), attemptNo);
+                }
+                propagateDownstream(task.getRunId());
+            }
+        });
     }
 
     private Thread startHeartbeater(UUID instanceId) {
@@ -243,9 +275,11 @@ public class WorkerService {
         }
     }
 
-    private TaskExecutionResult executeWithSingletonGuard(TaskInstanceEntity task, DagTaskEntity spec,
+    private TaskExecutionResult executeWithSingletonGuard(UUID instanceId, DagTaskEntity spec,
                                                           TaskExecutor executor, Map<String, Object> config)
             throws Exception {
+        TaskInstanceEntity task = new TransactionTemplate(transactionManager).execute(status ->
+                taskInstanceRepository.findById(instanceId).orElseThrow());
         if (!spec.isSingleton() || lockManager == null) {
             return executor.execute(task, config, spec.getTimeoutSeconds());
         }
