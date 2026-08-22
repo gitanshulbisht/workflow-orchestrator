@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 650" width="100%" height="100%" style="background-color: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <defs>
+    <style>
+      .title { font-size: 20px; font-weight: 700; fill: #58a6ff; }
+      .subtitle { font-size: 12px; fill: #8b949e; }
+      .box { fill: #161b22; stroke: #30363d; stroke-width: 1.5px; rx: 8px; transition: all 0.3s ease; }
+      .box:hover { stroke: #58a6ff; fill: #1c2128; cursor: pointer; filter: drop-shadow(0 0 8px rgba(88, 166, 255, 0.4)); }
+      .box-role { fill: #1f6feb; fill-opacity: 0.15; stroke: #388bfd; stroke-width: 1.5px; rx: 8px; }
+      .box-role:hover { stroke: #58a6ff; fill-opacity: 0.25; cursor: pointer; filter: drop-shadow(0 0 10px rgba(56, 139, 253, 0.5)); }
+      .box-db { fill: #238636; fill-opacity: 0.15; stroke: #2ea043; stroke-width: 1.5px; rx: 8px; }
+      .box-db:hover { stroke: #3fb950; fill-opacity: 0.25; cursor: pointer; filter: drop-shadow(0 0 10px rgba(46, 160, 67, 0.5)); }
+      .box-redis { fill: #da3633; fill-opacity: 0.15; stroke: #f85149; stroke-width: 1.5px; rx: 8px; }
+      .box-redis:hover { stroke: #ff7b72; fill-opacity: 0.25; cursor: pointer; filter: drop-shadow(0 0 10px rgba(248, 81, 73, 0.5)); }
+      .node-title { font-size: 14px; font-weight: 600; fill: #f0f6fc; }
+      .node-desc { font-size: 11px; fill: #8b949e; }
+      .badge { font-size: 10px; font-weight: 600; fill: #7ee787; }
+      .edge { stroke: #484f58; stroke-width: 2px; fill: none; stroke-dasharray: 6; animation: dash 20s linear infinite; }
+      .edge-active { stroke: #58a6ff; stroke-width: 2px; fill: none; }
+      @keyframes dash { to { stroke-dashoffset: -100; } }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#58a6ff"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="30" y="40" class="title">Workflow Orchestrator Architecture</text>
+  <text x="30" y="60" class="subtitle">Distributed Engine Topology (Spring Boot 4.1 · Java 21 · PostgreSQL 16 · Redis 7)</text>
+
+  <!-- Flow Lines -->
+  <path d="M 180 150 L 260 150" class="edge-active" marker-end="url(#arrow)"/>
+  <path d="M 460 150 L 540 150" class="edge-active" marker-end="url(#arrow)"/>
+  <path d="M 360 200 L 360 280" class="edge-active" marker-end="url(#arrow)"/>
+  <path d="M 360 380 L 360 450" class="edge-active" marker-end="url(#arrow)"/>
+  <path d="M 540 490 L 460 490" class="edge-active" marker-end="url(#arrow)"/>
+  <path d="M 690 200 L 690 450" class="edge-active" marker-end="url(#arrow)"/>
+  <path d="M 690 490 L 770 490" class="edge-active" marker-end="url(#arrow)"/>
+
+  <!-- React UI / Client -->
+  <a href="https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/frontend" target="_blank">
+    <g transform="translate(30, 110)">
+      <rect width="150" height="80" class="box"/>
+      <text x="15" y="32" class="node-title">React UI / Client</text>
+      <text x="15" y="52" class="node-desc">Vite + TS Dashboard</text>
+      <text x="15" y="68" class="badge">Port 5173 / HTTP</text>
+    </g>
+  </a>
+
+  <!-- API Role -->
+  <a href="https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/java/com/buildathon/orchestrator/api" target="_blank">
+    <g transform="translate(260, 100)">
+      <rect width="200" height="100" class="box-role"/>
+      <text x="15" y="30" class="node-title">API Role</text>
+      <text x="15" y="48" class="node-desc">DAG CRUD &amp; Run Triggers</text>
+      <text x="15" y="64" class="node-desc">Idempotency &amp; Rate Limit</text>
+      <text x="15" y="82" class="badge">ROLES=api (Port 8080)</text>
+    </g>
+  </a>
+
+  <!-- Outbox Relay -->
+  <a href="https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/java/com/buildathon/orchestrator/outbox" target="_blank">
+    <g transform="translate(540, 100)">
+      <rect width="180" height="100" class="box"/>
+      <text x="15" y="30" class="node-title">Outbox Relay</text>
+      <text x="15" y="48" class="node-desc">1s Polling Sweep</text>
+      <text x="15" y="64" class="node-desc">PENDING → PUBLISHED</text>
+      <text x="15" y="82" class="badge">Transactional Outbox</text>
+    </g>
+  </a>
+
+  <!-- Scheduler Role -->
+  <a href="https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/java/com/buildathon/orchestrator/scheduling" target="_blank">
+    <g transform="translate(770, 100)">
+      <rect width="200" height="100" class="box-role"/>
+      <text x="15" y="30" class="node-title">Scheduler Role</text>
+      <text x="15" y="48" class="node-desc">Cron Scanner (2s tick)</text>
+      <text x="15" y="64" class="node-desc">Leader Election &amp; Reaper</text>
+      <text x="15" y="82" class="badge">ROLES=scheduler</text>
+    </g>
+  </a>
+
+  <!-- PostgreSQL -->
+  <a href="https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/resources/db/migration" target="_blank">
+    <g transform="translate(260, 280)">
+      <rect width="200" height="100" class="box-db"/>
+      <text x="15" y="30" class="node-title">PostgreSQL 16</text>
+      <text x="15" y="48" class="node-desc">12 JPA Tables (Flyway)</text>
+      <text x="15" y="64" class="node-desc">SKIP LOCKED Task Queue</text>
+      <text x="15" y="82" class="badge">Transactional Source of Truth</text>
+    </g>
+  </a>
+
+  <!-- Redis -->
+  <a href="https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/java/com/buildathon/orchestrator/lock" target="_blank">
+    <g transform="translate(540, 280)">
+      <rect width="180" height="100" class="box-redis"/>
+      <text x="15" y="30" class="node-title">Redis 7</text>
+      <text x="15" y="48" class="node-desc">Redisson Leader Lock</text>
+      <text x="15" y="64" class="node-desc">Rate Limiter &amp; Pub/Sub</text>
+      <text x="15" y="82" class="badge">Distributed Locks &amp; Cache</text>
+    </g>
+  </a>
+
+  <!-- Workers -->
+  <a href="https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/java/com/buildathon/orchestrator/worker" target="_blank">
+    <g transform="translate(260, 450)">
+      <rect width="200" height="100" class="box-role"/>
+      <text x="15" y="30" class="node-title">Worker Role(s)</text>
+      <text x="15" y="48" class="node-desc">Claim + Execute + Retries</text>
+      <text x="15" y="64" class="node-desc">Heartbeat Daemon Pool</text>
+      <text x="15" y="82" class="badge">ROLES=worker (Bounded Pool)</text>
+    </g>
+  </a>
+
+  <!-- Fan-Out & Events -->
+  <a href="https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/java/com/buildathon/orchestrator/outbox" target="_blank">
+    <g transform="translate(540, 450)">
+      <rect width="180" height="100" class="box"/>
+      <text x="15" y="30" class="node-title">Event Fan-Out</text>
+      <text x="15" y="48" class="node-desc">SSE Stream to Browser</text>
+      <text x="15" y="64" class="node-desc">HMAC Signed Webhooks</text>
+      <text x="15" y="82" class="badge">Pub/Sub Fanout</text>
+    </g>
+  </a>
+</svg>
