@@ -75,43 +75,54 @@ One Maven artifact runs as three logical roles selected by the `ROLES` env var
 a single Render instance runs all three (safe: `SKIP LOCKED` claims and Redisson locks
 make colocation race-free).
 
+[![Interactive Architecture](docs/architecture.svg)](docs/architecture.html)
+
+> 💡 **[Open Interactive Architecture Explorer](docs/architecture.html)** — Explore live component topology, simulated task execution flow, and state machine transitions in your browser!
+
+```mermaid
+flowchart TB
+    classDef role fill:#1f6feb,fill-opacity:0.2,stroke:#388bfd,stroke-width:2px,color:#f0f6fc;
+    classDef db fill:#238636,fill-opacity:0.2,stroke:#2ea043,stroke-width:2px,color:#f0f6fc;
+    classDef redis fill:#da3633,fill-opacity:0.2,stroke:#f85149,stroke-width:2px,color:#f0f6fc;
+
+    subgraph Client ["Client Layer"]
+        UI["React UI (Vite) / Swagger UI"]
+    end
+
+    subgraph Roles ["Engine Roles"]
+        API["API Role (Port 8080)<br/>DAG CRUD · Idempotency · Rate Limit"]:::role
+        SCHEDULER["Scheduler Role<br/>Cron Scanner · Leader Lock · Reaper"]:::role
+        WORKER["Worker Role(s)<br/>SKIP LOCKED Claim · Execute · Retry"]:::role
+    end
+
+    subgraph Storage ["Storage & Messaging"]
+        PG[("PostgreSQL 16<br/>12 JPA Tables · SKIP LOCKED Queue<br/>Transactional Outbox & DLQ")]:::db
+        REDIS[("Redis 7<br/>Redisson Leader Lock<br/>Rate Limiter · Pub/Sub")]:::redis
+    end
+
+    subgraph Outbox ["Outbox & Fan-Out"]
+        RELAY["Outbox Relay (1s Sweep)<br/>PENDING → Redis Publish"]
+        FANOUT["Event Fan-Out<br/>SSE Broadcast & Webhooks"]
+    end
+
+    UI -->|HTTP Requests| API
+    API -->|Read/Write State| PG
+    API -->|Rate Limit / Cache| REDIS
+    SCHEDULER -->|Leader Lock| REDIS
+    SCHEDULER -->|Scan Schedules / Reap| PG
+    WORKER -->|SKIP LOCKED Claim| PG
+    PG -->|Outbox Events| RELAY
+    RELAY -->|Publish| REDIS
+    REDIS -->|Pub/Sub| FANOUT
+    FANOUT -->|SSE Stream| UI
+
+    click API "https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/java/com/buildathon/orchestrator/api" "View API Role Source"
+    click SCHEDULER "https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/java/com/buildathon/orchestrator/scheduling" "View Scheduler Source"
+    click WORKER "https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/java/com/buildathon/orchestrator/worker" "View Worker Source"
+    click PG "https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/resources/db/migration" "View Database Migrations"
+    click REDIS "https://github.com/gitanshulbisht/workflow-orchestrator/tree/main/backend/src/main/java/com/buildathon/orchestrator/lock" "View Locking Mechanism"
 ```
-                         ┌──────────────────────────────────────────────┐
-  React UI (Vite) ─────▶ │  API role  (Spring Boot, port 8080)          │
-  Swagger UI / SSE      │  DAG CRUD · run triggers · queries            │
-                         │  idempotency · rate limit · outbox relay     │
-                         │  → SSE broadcaster · webhook dispatcher       │
-                         └──────────────────┬───────────────────────────┘
-                                            │
-                     ┌─────────────────────┼──────────────────────────┐
-                     │                     │                          │
-                     ▼                     ▼                          ▼
-          ┌──────────────┐      ┌──────────────────┐      ┌──────────────────┐
-          │  PostgreSQL  │      │      Redis       │      │  Scheduler role  │
-          │  (queue +    │      │  leader lock     │      │  cron scanning   │
-          │   state)     │      │  rate limiters   │      │  misfire policy  │
-          │  outbox, DLQ │      │  dag cache       │      │  stale-reaper    │
-          │  SKIP LOCKED│      │  pub/sub         │      └──────────────────┘
-          │             │      └────────▲─────────┘               │
-          └───────▲─────┘              │ publish                   │
-                  │ claim              │                           │
-                  │              ┌─────┴──────────┐                │
-                  └──────────────┴────────────────┘               │
-                                 ▼                                 │
-                  ┌──────────────────────────────────┐             │
-                  │  Outbox relay (api role)         │             │
-                  │  PENDING → publish(Redis) →      │             │
-                  │  mark PUBLISHED                   │             │
-                  └──────────────┬───────────────────┘              │
-                                 │ Redis subscribers                  │
-                  ┌──────────────┴────────────────────┐ ┌──────────▼──────┐
-                  │  EventFanOut                        │ │  Worker role(s) │
-                  │  SSE → browser                    │ │  claim + execute│
-                  └────────────────────────────────────┘ │  retry, DLQ     │
-                                                       │  heartbeats     │
-                                                       │  (bounded pool)│
-                                                       └────────────────┘
-```
+
 
 ### Why Postgres as the queue (not Redis / Kafka)
 

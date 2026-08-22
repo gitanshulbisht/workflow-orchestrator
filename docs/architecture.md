@@ -1,6 +1,9 @@
 # Architecture
 
+> 🌐 **[Interactive Architecture Explorer App](architecture.html)** | 🎨 **[High-Res Vector Diagram SVG](architecture.svg)**
+
 ## Roles and processes
+
 
 The codebase produces one artifact that starts one of three roles based on `ROLES`:
 
